@@ -42,6 +42,7 @@ import { isAzurasStarEquipped, registerFoeDoor } from '../systems/artifactEffect
 import { EnemyAttack } from '../characters/enemy/enemyAttack.js';
 import { makeEnemyEntity, loadMonsterCareer, KNIGHT_CITYWATCH_ID, applyProgressionScaling } from '../characters/enemy/enemyEntity.js';
 import { combatStanding, foeShare, progressionScaling, wildernessShare, placeVeteran, wildernessThreat } from '../systems/skillSoftcap.js';   // SOFTCAP5: tougher foes in the wilds; BAL3: the wilds' own threat
+import { heroThreatOf } from '../systems/heroThreat.js';   // BAL11: the hero's threat
 import { isNight } from '../world/worldClock.js';   // SOFTCAP5: the wilds' night share   // AUDIT WATCH1 A1: the watch's own puppet allowance
 import { MobileUnit, MOBILE_DAEDRA_SEDUCER, SeducerTransformBehaviour } from '../characters/mobile/mobileUnit.js';   // A5: the Seducer transform pair + its trigger
 import { ClassFile } from '../formats/classFile.js';
@@ -105,6 +106,7 @@ import { setBatchDissolve } from '../systems/dissolve.js';   // DISSOLVE: burnt 
 import { createPortalSet } from './portalFx.js';   // COMPANION-PORTAL
 import { QUARRY_BLOW } from '../systems/livingWorld/quarry.js';
 import { createHostNpcBodies, npcBodiesOn } from '../characters/npcBodies.js';   // MWNPC5c: the pool's foes in their Morrowind bodies
+import { foeVision } from '../systems/survival/drunkVisions.js';   // DRUNK3: a Very drunk player's creatures drawn as harmless ones
 import { isBodyFoe, foeActor, foeFx, foeWireLook, applyWireLook } from '../characters/foeBodies.js';   // WATCH-PROTECTS: a townsperson's one blow
 import { elitesAllowed, promoteEliteFoe, rollOverworldElite, grantEliteLoot, eliteLoot, eliteGlow, setBatchEliteGlow, eliteSize, isEliteCorpse, markEliteCorpseBatch, ELITE_FOE_SIZE } from '../systems/eliteFoes.js';   // ELITE FOES: 5% of the wilds' foes   // HITFLASH1
 
@@ -459,7 +461,11 @@ export function createExteriorFoes({ renderer, collider, fetchBytes, getTexture,
         let night = false;
         try { night = isNight((skyMinute ?? currentMinute)()); } catch { /* no clock: day */ }   // TIME1: the sky's night
         // BAL3 (bible/05-Combat/Balance-Arc.md section 5): and the wilds' own threat - tier 5 by day, a harpy nest's 7 at night - while the ladder stands
-        applyProgressionScaling(entity, progressionScaling(combatStanding(playerEntity), wildernessShare(night), foeShare(basics?.level ?? entity.level, isClass), lootRarityOn() ? placeVeteran(wildernessThreat(night)) : 0));
+        // BAL11 (section 17): and the hero's threat - my level past 10 and my Renown past 15, every kind alike
+        applyProgressionScaling(entity, progressionScaling(combatStanding(playerEntity), wildernessShare(night), foeShare(basics?.level ?? entity.level, isClass), lootRarityOn() ? placeVeteran(wildernessThreat(night)) : 0, heroThreatOf(playerEntity)));
+      } else if (puppet && !allied && !inLocation()) {
+        // BAL11: a peer's foe strikes ME at MY threat - its blows alone; its maximum is its owner's word (the record's `k`)
+        applyProgressionScaling(entity, progressionScaling(null, 0, 0, 0, heroThreatOf(playerEntity, { puppet: true })));
       }
       // DW-E4: SetEnemyTeam - Entity.Team alone (the treasure guards' Undead), the MobileEnemy copy kept
       if (team) entity.team = team;
@@ -2090,14 +2096,14 @@ export function createExteriorFoes({ renderer, collider, fetchBytes, getTexture,
       if (!_dv && f.portalFx && f.portalFx.dir === 'in') f.portalFx = null;   // through: whole
       setBatchDissolve(f.batch, _dv ? _dv[0] : 0, _dv ? _dv.slice(1) : undefined);
 
-      const o = f._mout;
+      const o = foeVision(f, f.archive, f.tex, f._mout, getTexture);   // DRUNK3: what to DRAW - the foe's own sprite, or what a Very drunk eye takes it for (archive, tex, record, frame, flip); its clock, f._mout, is the real one's
       const rkey = `${o.record}#${o.frame}`;
-      if (!renderer.textures.has(`${f.archive}_${rkey}`)) uploadRecordFrame(f.archive, o.record, o.frame);
-      const sz0 = mobileBillboardSize(f.tex, o.record);   // AUDIT MM1: a mobile unit's record cache carries the xml scale
+      if (!renderer.textures.has(`${o.archive}_${rkey}`)) uploadRecordFrame(o.archive, o.record, o.frame);
+      const sz0 = mobileBillboardSize(o.tex, o.record);   // AUDIT MM1: a mobile unit's record cache carries the xml scale
       const szE = eliteSize(f.entity) * lastStandSize(f.entity);   // ELITE FOES: a quarter larger (onto locals - the cache's object is shared); RVN4: phase two a tenth
       const szG = szE * wildGiantSize(f.entity);   // WILD3: a giant of the open zone, four times over
       const sz = szG === 1 ? sz0 : { w: sz0.w * szG, h: sz0.h * szG };
-      f.batch.record = rkey;
+      f.batch.record = rkey; f.batch.archive = o.archive;
       // WAGONS2: a companion seated in my wagon's back is DRAWN where the wagon is drawn - grown with it under the
       // Overworld (scenes/crewAshore.js ai.seatDraw, the pool's seatDrawn); its body stays on the seat itself
       const _sd = f.ai?.seatDraw?.() ?? (f.puppet && _puppetSeatDraw ? _puppetSeatDraw(f) : null), _sg = _sd?.g > 1 ? _sd.g : 1;   // and a peer's, on their wagon as drawn here

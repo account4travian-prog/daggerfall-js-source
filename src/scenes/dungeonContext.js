@@ -17,6 +17,7 @@ import { FlatAnimator, armFlatAnim, MISSILE_FPS } from '../render/flatAnimation.
 import { markFoeStruck } from '../ui/hud/hudFoeTarget.js';
 import { combatStanding, dungeonShare, foeShare, progressionScaling, placeVeteran } from '../systems/skillSoftcap.js';   // SOFTCAP2: tougher foes, by dungeon tier; BAL3: and by the place's own threat
 import { effectiveLevel } from '../systems/mentorMode.js';   // SOFTCAP1
+import { heroThreatOf } from '../systems/heroThreat.js';   // BAL11: the hero's threat
 import { quickslotHand } from '../ui/quickslotTags.js';   // DISC21-C: an empty quickslot press reads the hand   // PX30
 import { lycanthropeAttackVoice, lycanthropeMoveSound } from '../systems/lycanthropy.js';   // V4: the beast's attack voice; LM1: the 4-20s move-sound loop; DISC10-E L3: the inventory refusal moved INTO the window door
 import { layoutDungeon, isDungeonExitDoor } from '../world/dungeon/dungeonLayout.js';
@@ -301,6 +302,7 @@ import { NavClient } from '../ai/nav/navClient.js';   // ENHANCED AI 3b
 import { getPref } from '../systems/uiPrefs.js';
 import { createHostNpcBodies, npcBodiesOn } from '../characters/npcBodies.js';   // MWNPC5b: the foes in their Morrowind bodies
 import { isBodyFoe, foeActor, foeFx, foeId, foeSeed, applyWireLook, drawBodiesUnderWindow } from '../characters/foeBodies.js';
+import { foeVision } from '../systems/survival/drunkVisions.js';   // DRUNK3: a Very drunk player's creatures drawn as harmless ones
 import { createPopulationLane } from '../characters/npcBodies.js'; import { personActor } from '../characters/peopleBodies.js';   // MWNPC8b: the dungeon's standing people   // ENHANCED AI 3b: the Enhanced tab's switch
 import { raiseEnemyDeath, playRareDrop, pileBody, sayEnemyDied, corpseEntityName } from './corpseMarker.js';   // UL1: OnEnemyDeath; LR3: the drop chime; LOOT-STACK: a body as the loot window's tab; LOOT7-CHECK DUNGEON-DIED: the kill notice; L10N3e: a body's name as shown
 import { egFindStruck, egFindKill } from '../systems/eliteGates/egFind.js';   // EG-E3: the dungeon's find - a joiner's kill, asked by the joiner; PARTY-LOOT: a room's body's kill
@@ -1424,14 +1426,18 @@ export async function buildDungeonContext(deps, dfLocation, blocks, climateBaseT
   // AUDIT BAL: never the port's own stages that wear a Crypt's type for want of one (the arena's floor, the gate's court,
   // the Shattered Hour - world/arena/arenaFloor.js, gateArena.js, sdRealm.js) - their fights are tuned, and their health the relay's
   const _placeVeteran = isGateArena(dfLocation) || isArenaFloor(dfLocation) || _sdRealm ? 0 : placeVeteran(dungeonRarityTier(dfLocation.mapTableData?.dungeonType));
+  // BAL11 (Balance-Arc.md section 17): THE HERO'S THREAT stands on no tuned stage - a made level (the court, the Hour, the Spire) or the arena's floor
+  const _heroStage = _made != null || isArenaFloor(dfLocation);
   /** `puppet`: AUDIT BAL - another client's foe stands at this place too. The place is every client's (its tier, the
    *  ladder forced on online), so a puppet takes it - its blows on me as hard as on its owner; the owner's own standing
-   *  (Master Skills) is the owner's, and the puppet's health the owner's record's (`k`, `h`). */
-  function applyProgressionScalingTo(entity, basics, { puppet = false } = {}) {
+   *  (Master Skills) is the owner's, and the puppet's health the owner's record's (`k`, `h`).
+   *  BAL11: and the hero's threat - mine on every foe I build, a puppet's blows alone (at me); never an ally's (`ally`). */
+  function applyProgressionScalingTo(entity, basics, { puppet = false, ally = false } = {}) {
     const place = lootRarityOn() ? _placeVeteran : 0;
     const share = puppet ? 0 : _dungeonShare;
-    if (!(share > 0) && !(place > 0)) return;
-    const scaling = progressionScaling(puppet ? null : combatStanding(foeDeps.playerEntity), share, foeShare(basics?.level ?? entity.level, entity.isClass), place);
+    const hero = ally || _heroStage ? null : heroThreatOf(foeDeps.playerEntity, { puppet });
+    if (!(share > 0) && !(place > 0) && !hero) return;
+    const scaling = progressionScaling(puppet ? null : combatStanding(foeDeps.playerEntity), share, foeShare(basics?.level ?? entity.level, entity.isClass), place, hero);
     foeDeps.applyProgressionScaling?.(entity, scaling);   // lazily loaded beside makeEnemyEntity; the dungeon's own deps (the import used `D`, which only the spawn builders below bind)
   }
   function applyEliteScaling(entity, e) {
@@ -1525,8 +1531,8 @@ export async function buildDungeonContext(deps, dfLocation, blocks, climateBaseT
       cf.load(await D.fetchBytes(`CLASS${String(careerIndex).padStart(2, '0')}.CFG`));
       const entity = D.makeEnemyEntity(e.mobileType, basics, cf.career, e.level ?? (_superTier ? superFoeLevel(effectiveLevel(D.playerEntity)) : effectiveLevel(D.playerEntity)));   // SOFTCAP1: a mentor's dungeon is built at the group's level; ARENA2: a bout fighter at its tier's; SD4a: a Super dungeon's class foe at its band
       applyEliteScaling(entity, e);   // ELITE: double health, double damage
-      if (!puppet && e.level == null) applyProgressionScalingTo(entity, basics);   // SOFTCAP1: tougher high-tier foes against skills past 100 (a puppet is its owner's build); ARENA2: never a bout fighter (the ladder is a fixed mountain)
-      else if (puppet && e.level == null) applyProgressionScalingTo(entity, basics, { puppet: true });   // AUDIT BAL: a puppet stands at this place too - its blows on me as on its owner (BAL3)
+      if (!puppet && e.level == null) applyProgressionScalingTo(entity, basics, { ally: !!e.allied });   // SOFTCAP1: tougher high-tier foes against skills past 100 (a puppet is its owner's build); ARENA2: never a bout fighter (the ladder is a fixed mountain)
+      else if (puppet && e.level == null) applyProgressionScalingTo(entity, basics, { puppet: true, ally: !!e.allied });   // AUDIT BAL: a puppet stands at this place too - its blows on me as on its owner (BAL3)
       if (_wildDungeon && !e.allied) applyWildFoe(entity, { ring: _wildRing });   // WILD1: a dungeon of the open zone - four times its health and its blows, over an elite's (every client builds the room's foes alike, so the maximum agrees)
       applySpawnAlliance(entity, e);   // MT-ii / AUDIT OH-F C4
       entity._feudPlace = 'dungeon';   // RVN1 (Feud-Arc.md 12): where a fight with it is fought, for its ledger
@@ -1618,8 +1624,8 @@ export async function buildDungeonContext(deps, dfLocation, blocks, climateBaseT
       const career = await D.loadMonsterCareer(e.mobileType, D.fetchBytes);
       const entity = D.makeEnemyEntity(e.mobileType, basics, career, e.level ?? effectiveLevel(D.playerEntity));   // SOFTCAP1: a mentor's dungeon is built at the group's level; ARENA2: a bout fighter at its tier's
       applyEliteScaling(entity, e);   // ELITE: double health, double damage
-      if (!puppet && e.level == null) applyProgressionScalingTo(entity, basics);   // SOFTCAP1: tougher high-tier foes against skills past 100 (a puppet is its owner's build); ARENA2: never a bout fighter
-      else if (puppet && e.level == null) applyProgressionScalingTo(entity, basics, { puppet: true });   // AUDIT BAL: a puppet stands at this place too - its blows on me as on its owner (BAL3)
+      if (!puppet && e.level == null) applyProgressionScalingTo(entity, basics, { ally: !!e.allied });   // SOFTCAP1: tougher high-tier foes against skills past 100 (a puppet is its owner's build); ARENA2: never a bout fighter
+      else if (puppet && e.level == null) applyProgressionScalingTo(entity, basics, { puppet: true, ally: !!e.allied });   // AUDIT BAL: a puppet stands at this place too - its blows on me as on its owner (BAL3)
       if (_wildDungeon && !e.allied) applyWildFoe(entity, { ring: _wildRing });   // WILD1: a dungeon of the open zone - four times its health and its blows, over an elite's (every client builds the room's foes alike, so the maximum agrees)
       applySpawnAlliance(entity, e);   // MT-ii / AUDIT OH-F C4
       entity._feudPlace = 'dungeon';   // RVN1 (Feud-Arc.md 12): where a fight with it is fought, for its ledger
@@ -8014,11 +8020,11 @@ export async function buildDungeonContext(deps, dfLocation, blocks, climateBaseT
         if (!_dv && f.portalFx && f.portalFx.dir === 'in') f.portalFx = null;
         setBatchDissolve(f.batch, _dv ? _dv[0] : 0, _dv ? _dv.slice(1) : undefined);
 
-        const out = f._mout;
+        const out = foeVision(f, f.mobileArchive, f.mobileTex, f._mout, getTexture);   // DRUNK3: what to DRAW - the foe's own sprite, or what a Very drunk eye takes it for (archive, tex, record, frame, flip); its clock, f._mout, is the real one's
         const rkey = `${out.record}#${out.frame}`;
-        if (!renderer.textures.has(`${f.mobileArchive}_${rkey}`)) uploadRecordFrame(f.mobileArchive, out.record, out.frame);
-        f.batch.record = rkey;
-        const sz = mobileBillboardSize(f.mobileTex, out.record);   // AUDIT MM1: a mobile unit's record cache carries the xml scale - a shared, cached object: read, never written
+        if (!renderer.textures.has(`${out.archive}_${rkey}`)) uploadRecordFrame(out.archive, out.record, out.frame);
+        f.batch.record = rkey; f.batch.archive = out.archive;
+        const sz = mobileBillboardSize(out.tex, out.record);   // AUDIT MM1: a mobile unit's record cache carries the xml scale - a shared, cached object: read, never written
         // C17: the texture-475 female casting records read too small
         // from the files - DFU post-scales 20-24 by 1.35 (OrientEnemy).
         // FB0930-FOE-RAYS: onto LOCALS. It multiplied the width and height ON the

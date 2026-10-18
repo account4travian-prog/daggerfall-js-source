@@ -115,6 +115,7 @@ import { createActivateGate, activateFrame } from '../systems/activateGate.js'; 
 import { FootstepMachine, pickFootstepSet, pickFootstepKind } from '../systems/footsteps.js';   // FS-slice; AUDIT DROPS E2: the kind the pose carries
 import { immersiveFootsteps } from '../systems/immersiveFootsteps.js';
 import { betterAmbience, classicFootstepAllowed } from '../systems/betterAmbience.js';   // BA1: Better Ambience - the shake, the dungeon's fog and light, the reverb, the indoor rain, its own stride   // IF1: Immersive Footsteps owns the stride and the three landing sounds once its clips are in (DisableVanillaFootsteps)
+import { drunkFeel } from '../systems/survival/drunkFeel.js';   // DRUNK1: the drink's sway and stumble, beside the shake
 import { applyFog, DUNGEON_FOG } from '../render/underwaterFog.js';
 import { gateArenaLocation, gateArenaBlocks, isGateArena, buildCourtModel, buildWalkSlabModel, walkSlabs, slabMatrix, courtFloorTris, courtLightsNear, withCourtLights, courtDoorAabb, COURT_ARCHIVE, COURT_FOG, COURT_TEXT } from '../world/gate/gateArena.js';   // WB3b: the Burning Court - a level made in code on this host's dungeon arm
 import { isSdRealm, sdRealmLocation, sdRealmBlocks, buildRealmModel, realmColliderTris, realmLightsWith, realmLighting, SD_REALM_ARCHIVE, SD_REALM_FOG } from '../world/superDungeon/sdRealm.js';   // SD5a: the Shattered Hour, a made level as the court is
@@ -218,7 +219,7 @@ import { applyDeathPenalty, deathPenaltyText } from '../systems/deathPenalty.js'
 import { revenantTakes } from '../systems/revenant/revenant.js';   // AUDIT FEUD (RVN8): the in-place respawn's theft, as the world host's
 import { endPlayerFights } from '../systems/harmMark.js';   // AUDIT FEUD (RVN10): ...and its fights ended
 import { tokenRows } from '../ui/messageBox.js';
-import { staticNpcRoute, showsJoinButton, serviceAccess, onPushEffects, rankNeedsLines, NO_POTION_INGREDIENTS, isServiceBox, SERVICE_LABEL, SERVICE_DESTINATION } from '../systems/guild/guildServiceFlow.js';
+import { staticNpcRoute, showsJoinButton, serviceAccess, onPushEffects, rankNeedsLines, wayBackLines, NO_POTION_INGREDIENTS, isServiceBox, SERVICE_LABEL, SERVICE_DESTINATION } from '../systems/guild/guildServiceFlow.js';
 import { isIngredient } from '../systems/potions.js';   // F201: MakePotionService's scan
 import { isPotionRecipe, USE_TEXT, expandItemMacro } from '../systems/useItem.js';   // AUDIT 63 F42: IsPotionRecipe (DaggerfallUnityItem.cs:344-347); RR1: the light's own "You douse the %it."
 import { canAccessService , hasCustomMerchantService, getCustomMerchantService, getCustomMerchantServiceLabel } from '../systems/guild/guildServices.js';   // G4: does THIS guild also sell soul gems?
@@ -273,6 +274,7 @@ import { theftBasket, privatePropertyTheft, shopShelfTheft } from '../systems/th
 import { landSold } from '../systems/stolenGoods.js';   // STOLEN-GOODS: a stolen piece sold is the merchant's to be rid of, never shelved
 import { buildingGreeting, shopQualityPresentation } from '../systems/buildingGreeting.js';
 import { setUnleveledLootWorld, unleveledLootPreTransition, unleveledLootExteriorTransition } from '../systems/unleveledLoot.js';   // UL1: PlayerEnterExit's world and its transition events   // BG1: the shop quality + the householder's greeting
+import { phantomDoorText } from '../systems/survival/drunkSigns.js';   // DRUNK4: a very drunk eye reads a few other buildings' plaques as taverns'
 import { discoverBuilding, undiscoverBuilding, getDiscoveredBuilding, getLastLockpickAttempt, setLastLockpickAttempt, shownBuildingName } from '../systems/discovery.js';   // H3: selling a house takes its name back off the map
 import { BUILDING_KEY_0 } from '../systems/talk/talkTopics.js';   // H3: the no-key key both ship interiors are filed under
 import { carriedPieces } from '../systems/item/itemIds.js';   // AUTO-HOLD: the room's word never lands a piece I carry (world/interior/interiorShared.js)
@@ -6065,7 +6067,7 @@ export function createWorldModes(host) {
     // D2: what it sells alone (its services, its quests, the Reforge's and the temple's rows) - DFU's popup stands, and
     // with it OnPush's rank review, a temple's free healing, the Mages' free recharge, Talk and the join
     const shutBox = () => (chapterHallShut(host.chapterHere?.(guild.factionId) ?? null) ? { rows: [CHAPTER_HALL_SHUT_LINE] } : null);
-    shutBox();   // AUDIT CHAP5 C1: asked as the popup opens - a patron's hall has the guild book look before a price reads it
+    const shutAtOpen = !!shutBox();   // AUDIT CHAP5 C1: asked as the popup opens - a patron's hall has the guild book look before a price reads it; WAY-BACK: and the way back's words read it (AUDIT WAY-BACK L1-3)
     if (!guildServiceArtLoaded() || !_shopFont) return;   // no art, no window (the U8 idiom)
     const memberships = activeMemberships(playerEntity);   // V2e: the vampire-aware book
     // CHAP4b (Chapters-Arc 6): a seat's rank at its own chapter's halls - the hall's services read the book SEATED (the
@@ -6118,6 +6120,7 @@ export function createWorldModes(host) {
     // next one, and the port's overlay slot is single. The identity
     // guard is what keeps the second window alive; without it the join
     // welcome and every service flow vanished the moment they opened.
+    const wayBack = () => wayBackLines(guild, playerEntity, memberships, store, { paced: !!host.rollPace?.(guild.factionId), online: sharedClockOn(), shut: shutAtOpen });   // WAY-BACK: the Roll's pace while it holds
     let win = null;
     win = new GuildServiceWindow({
       member: () => !showsJoinButton(memberships, route.guildGroup),
@@ -6135,6 +6138,7 @@ export function createWorldModes(host) {
       }),
       // PROMO-NOW: online, the popup says what the next rank asks (the enhanced skin's line; the classic window is DFU's)
       rankNeeds: () => { const pace = sharedClockOn() ? host.rollPace?.(guild.factionId) ?? null : null; return sharedClockOn() ? rankNeedsLines(playerEntity, guild, seated(), store, { rankCeiling: pace?.book ?? null, pace, now: ownDate(), book: memberships }) : null; },   // ROLL-PACE: and when the pace holds it; SEAT-LINE: read seated - a seat's own hall asks nothing more; STANDING-WORDS: the review's date and its book
+      wayBack,   // WAY-BACK (FIELD BUGS 2026-10-16d): a stranger the guild will not take is told the way in, both lanes
       onJoin: () => {
         // JoinButton_OnMouseClick (:497-525). joinDecision is null for
         // the two invitation-only guilds, which DFU reaches by
@@ -6146,7 +6150,7 @@ export function createWorldModes(host) {
         if (!store) return null;
         const decision = joinDecision(playerEntity, guild, store);
         if (!decision) return null;
-        if (!decision.eligible) return { rows: rows(decision.textId) };
+        if (!decision.eligible) return { rows: [...rows(decision.textId), ...(isEnhanced() ? [] : wayBack() ?? [])] };   // WAY-BACK: DFU's refusal, then the way in - on the enhanced skin the hall's well says it (AUDIT WAY-BACK L2-2/4/5)
         return {
           rows: rows(decision.textId),
           buttons: 'YesNo',
@@ -7247,7 +7251,7 @@ export function createWorldModes(host) {
   let _doorTextGen = -1;
   let _doorTextHomes = -1;   // HOME1: the homes registry's version the text was read at - a town's answer, a sale, repaints the door
   let _doorTextVerbs = '';   // HOME2: whether the door's verbs were listed, and which buy was armed - a mode change or an arm repaints it
-  let _doorText = null;
+  let _doorText = null, _doorBd = null;   // DRUNK4: `_doorBd` the building record `_doorText` names - the drunk eye's plaque reads it (drunkPlaque), never writes it
   /**
    * ...AND IT IS FREED WHEN THE MODE LEAVES THE STREET.
    *
@@ -7621,7 +7625,7 @@ export function createWorldModes(host) {
       // over a tavern's doorstep named the tavern's door, while the
       // click walked into the tavern. A door belongs to one building;
       // its plaque says that one. A departure from the mod (Ledger A).
-      const bd = doorBuilding(entry);
+      const bd = doorBuilding(entry); _doorBd = bd ?? _doorBd;
       if (!bd) return _doorText;
       const locId = discoveryLocationId?.() ?? null;
       if (!locId) return _doorText;
@@ -7672,6 +7676,8 @@ export function createWorldModes(host) {
   /** The town a building record is keyed by: the door's own location (buildingDataForDoor's `townMapId` - a streamed
    *  neighbour's door is not the town under the player), else the location under the player. */
   const homeTownOf = (b) => b?.townMapId || (questSceneCtx?.()?.mapId ?? 0);
+  /** DRUNK4: a plaque as the drunk eye reads it - a building the drink takes for a tavern is named for one (systems/survival/drunkSigns.js); presentation only, applied after the door's cache, never stored */
+  const drunkPlaque = (t, key) => phantomDoorText(t, typeof key === 'number' && key === _doorTextKey && t === _doorText ? _doorBd : null, homeTownOf(_doorBd));
   /** H1's IsHouseOwned for a building where it stands - DFU's (region, key) law; AUDIT CAPTAIN'S SEA P9: never a building
    *  of an isle's town (no house is sold past the Veil, and a Betony deed's key owned the same key in every isle town of
    *  region 19 - its residents gone, its cupboards the player's). */
@@ -10786,6 +10792,7 @@ export function createWorldModes(host) {
           waterSurfaceY: mode === 'dungeon' ? (_surf ?? null) : null, onExteriorWater: false, onExteriorWaterAny: false, onExteriorPath: false, onStaticGeometry: false, onFoot: true,
           winter: false, climateIndex: 0, loadInProgress: false, paused: overlayHeld,   // AUDIT-BA F3
         });
+        drunkFeel.frame(dt, { entity: playerEntity, player, paused: overlayHeld });   // DRUNK1: the drink's clock, its ease and its stumble (survival/drunkFeel.js), on the shake's pause
       }
     }
     // CSA-J (the audit): Come Sail Away's Update and LateUpdate AFTER the motor, as the street runs them - the helm's pin
@@ -14423,7 +14430,7 @@ export function createWorldModes(host) {
     exteriorActivationDistance,   // AUDIT 63 F33 (review): the rival distance the living-foe arm must beat
     exteriorActivationHit,   // FB1012d ALLY-YIELDS: ...and its pick, reach and all, for the race's `next`
     exteriorHoverPick,   // WORLD-HOVER: the plaque's winner, raced exactly as the press's is
-    exteriorHoverName,   // ...and what that winner is called
+    exteriorHoverName: (key, o) => drunkPlaque(exteriorHoverName(key, o), key),   // ...and what that winner is called (DRUNK4: as the drink reads it)
     openYardTrade,   // MERCHANT-YARDS: a yard's counter, opened from the street (scenes/world.js merchantYards' `open`)
     cabinHolds, cabinSold,   // SHIPYARDS: a ship sold at a shipyard - what her cabin still holds, and her cabin let go with her
     attemptExteriorDoorBash,   // ROAD-B: WeaponEnvDamage's static-door arm (PlayerActivate.cs:1056-1079)

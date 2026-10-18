@@ -227,6 +227,8 @@ import { hasCustomLocationPosition } from '../world/locationLayout.js';   // ROA
 import { FootstepMachine, pickFootstepSet, pickFootstepKind } from '../systems/footsteps.js';   // FS-slice; PEER-FS1: pickFootstepKind for the pose's own `fk`
 import { immersiveFootsteps, reportModCompatibilityIssues } from '../systems/immersiveFootsteps.js';
 import { betterAmbience, classicFootstepAllowed } from '../systems/betterAmbience.js';   // BA1: Better Ambience - the shake, the dungeon's fog and light, the reverb, the indoor rain, its own stride   // IF1: Immersive Footsteps owns the stride and the three landing sounds once its clips are in (DisableVanillaFootsteps)
+import { drunkFeel } from '../systems/survival/drunkFeel.js';   // DRUNK1: the drink's sway and stumble, beside the shake
+import { chatSaid } from '../systems/survival/drunkSpeech.js';   // DRUNK1: the Local tab's line, said as the drink stands
 import { createExteriorFoes, MAX_ACTIVE_ENCOUNTER_FOES, encounterCap, WILD_PACK_MULT, CAMP_CULL_DISTANCE, ENCOUNTER_CULL_DISTANCE, siteFoeSpawn, carrySiteFoe } from './exteriorFoes.js';   // X-slice; OW6: the pool's bound, a warband's too, and the culls a walk-away handover comes before
 import { createBreather, frameFitBudget } from '../systems/buildBreather.js';   // PERF7: the stream build yields to the frame; PERF-EXT24: a slice of what the frame left
 import { pieceIndex } from '../render/labGrass.js';   // PERF8: the piece under a point, by arithmetic
@@ -293,6 +295,7 @@ import { fleetBook, fleetShip, titleDeed, knowShip, retitle, setShipPort, forget
 import { createFleetHost } from './fleetHost.js';   // HOLDINGS: the Fleet page's host half
 import { createQuayPool } from './quayPool.js';   // QUAYS: a harbour's quays, stood off its berths, and the gangways
 import { createLefayMonument } from './lefayMonumentHost.js';   // LEFAY1: the monument to Julian LeFay outside Privateer's Hold (HOLD-MONUMENT), and the flowers laid at it
+import { createDrunkSignsHost } from './drunkSignsHost.js';   // DRUNK4: the tavern signs a very drunk eye sees beside a few other buildings' doors
 import { createMerchantYards } from './merchantYardsHost.js';   // MERCHANT-YARDS: every city's and town's Stable and Wagon Yard, and their trade
 import { createPortHost, PORT_TEXT, stairRefusal, stairFeetY } from './portHost.js';   // SHIPYARDS: every port town's shipyard and lighthouse, their people, their press and the lamp - and the stair's refusals
 import { createShipyardHost } from './shipyardHost.js';   // SHIPYARDS: the shipmaster's window's host half
@@ -859,7 +862,7 @@ import { LANG_LINES, unknownLangText } from '../net/chatCommands.js';   // CHAT-
 import { OPT_CHANNELS, tradeChanOldText, notJoinedText, optJoinedText, optJoinedSayText, optLeftText, optWaitText, alreadyJoinedText } from '../net/chat.js';   // CHAT-TRADE: the Trade and LFG tabs' words
 import { badJoinText } from '../net/chatCommands.js';   // CHAT-TRADE: /join's and /leave's refusal
 import { oocText, localLineHeard, nextRegionRoom, regionJoinedText, CHAN_OLD_RELAY_TEXT, ROLL_OLD_RELAY_TEXT, EMOTE_OLD_RELAY_TEXT, GUILD_OLD_RELAY_TEXT, NO_GUILD_TEXT, partyNoteTab } from '../net/chat.js';   // CHAT-CHAN: the channels' own laws (a second chat import: CHAT1's pin holds the first as it stands)
-import { breachCommandOf, helpLines } from '../net/chatCommands.js';   // AUDIT EG V (c, L7-1, L7-21): the Elite Breach's door, its words whole; /help's lines with its own
+import { breachCommandOf, helpLines, mailboxCommandOf } from '../net/chatCommands.js';   // AUDIT EG V (c, L7-1, L7-21): the Elite Breach's door, its words whole; /help's lines with its own
 import { parseChatLine, CHAT_GREETING_TEXT, unknownCommandText, emptyCommandText, hostMisuseText, badRollText, expandShortcodes, EMOTE_LINES, foundText, FIND_OFFLINE_TEXT, FIND_RELAY_TEXT } from '../net/chatCommands.js';   // CHAT-CHAN: what a typed line IS; DICE1: and a roll; EMOTE1: an action, a gesture, a shortcode
 import { partyRosterSource, localRosterSource, guildRosterSource } from '../net/roster.js';   // CHAT-CHAN: the Party and Local tabs' composed lists
 import { partyCompassPoints } from '../ui/partyMapMarks.js';   // COMPASS-PARTY: the party's points on the compass
@@ -1653,7 +1656,7 @@ export async function bootWorld(canvas, renderer, params, status) { handHeroGend
   const locationIndex = new Map();
   let bountyFarms = null;   // BOUNTY-FARM: the farm pool, made beside the bounty pack's stander; read late (a transition, a load, the frame)
   let quays = null;   // QUAYS: the harbours' quays (scenes/quayPool.js), made beside the farms; read late (a transition, a load, the frame)
-  let lefay = null;   // LEFAY1: the monument to Julian LeFay (scenes/lefayMonumentHost.js), made beside the Sigil Broker; read late (a transition, a load, the frame)
+  let lefay = null, drunkSignsHost = null;   // LEFAY1: the monument to Julian LeFay (scenes/lefayMonumentHost.js), made beside the Sigil Broker; read late (a transition, a load, the frame); DRUNK4: and the tavern signs a very drunk eye sees (scenes/drunkSignsHost.js), made beside the monument
   let poiHost = null;   // POI-2: the approved POIs (scenes/poiHost.js), made beside the monument; read late (a transition, a load, the frame)
   let poiFeed = null;   // POI-2: the approved set they are read from (poi/poiFeed.js) - the editor's drafts laid over it (POI-3)
   let poiEditor = null;   // POI-3: the editor in the world (scenes/poiEditorHost.js) - `?editor` alone, a builder's; read late (the frame)
@@ -15800,7 +15803,7 @@ export async function bootWorld(canvas, renderer, params, status) { handHeroGend
         droppedTorches.restore(restandAt('position')(w.droppedTorches), (p) => { const [lx, lz] = state.localFromWorld(p[0], p[2]); return [lx, p[1] + state.compensation[1], lz]; });   // HT1
         bountyFarms?.destroyAll();   // BOUNTY-FARM: a load - the farms stand again from the loaded bounties
         quays?.destroyAll();   // QUAYS: and the quays, off the harbours found again
-        lefay?.destroyAll();   // LEFAY1: and the monument - its collider down, stood again off the loaded world (a flower in the air lands nowhere: thrown before the restore - AUDIT LEFAY1 B1)
+        lefay?.destroyAll(); drunkSignsHost?.destroyAll();   // DRUNK4: and the drunk eye's signs, hung again the next frame the law picks them; LEFAY1: and the monument - its collider down, stood again off the loaded world (a flower in the air lands nowhere: thrown before the restore - AUDIT LEFAY1 B1)
         poiHost?.destroyAll();   // POI-2: and the POIs - their colliders down, stood again off the loaded world
         merchantYards?.destroyAll();   // MERCHANT-YARDS: and the yards, their colliders down, stood again off the loaded world
         portHost?.destroyAll(); closeShipyard();   // SHIPYARDS: and the shipyards and lighthouses, and the shipmaster's window over a world gone
@@ -21616,11 +21619,11 @@ export async function bootWorld(canvas, renderer, params, status) { handHeroGend
         // SERVER-POST (AUDIT SERVER-POST: the classic skin's pause window has no envelope, and the notice sent its players to
         // one): `/mail` - the mailbox, on either skin and wherever the player stands (the enhanced pause face with its window
         // open: ui/pauseDoor.js's door, worldModes.js openPauseAt indoors and underground). Local, never sent.
-        if (/^\/mail(box)?$/i.test(text.trim())) {
+        { const at = mailboxCommandOf(text); if (at) {   // PRIVATE-REPORT: and `/bug`, the mailbox's private report form
           if (!postSource()) { chatLog.push(tabId, { text: 'The mailbox is online - it opens once you are connected and signed in.', system: true }); return true; }
-          if (!modes?.openPauseAt?.('mailbox')) hudCtx.togglePause({ at: 'mailbox' });
+          if (!modes?.openPauseAt?.(at)) hudCtx.togglePause({ at });
           return true;
-        }
+        } }
         // EG-PLAY: `/breach` - answer an Elite Breach's call; `/breach rehearse` - the day's Rehearsal; `/breach home` - a
         // Redoubt's way home. Local, never sent as chat. AUDIT EG V (c, L7-1): its words WHOLE (net/chatCommands.js
         // breachCommandOf) - `/breach pick 2`, `vote yes`, `buy tonic` - where a one-word door read each as no command
@@ -25554,7 +25557,7 @@ export async function bootWorld(canvas, renderer, params, status) { handHeroGend
     say: (text) => townTalk.say(text), midText: (text) => setMidScreenText(text),
     sound: () => audio.playOneShot(SOUND.SwingHighPitch, 0.4),   // the hand's swing, as a thrown torch's (systems/handheldTorches.js CLIPS.throwSwing)
     restores: restoresSoFar,   // AUDIT LEFAY1 B1: a flower thrown before a load, whichever load, lands nowhere
-  });
+  }); drunkSignsHost = createDrunkSignsHost({ renderer, built: () => built, translation: (px, py, out) => state.pixelTranslation(px, py, out), pixelNow: () => built.get(`${playerTravelPixel().x},${playerTravelPixel().y}`) });   // DRUNK4: THE TAVERN SIGNS A VERY DRUNK EYE SEES (scenes/drunkSignsHost.js) - a tankard sign beside the door of the few buildings the drink takes for taverns in the player's town; its pixel's door frames, carried by the live translation
   // POI-2: THE APPROVED POIS (scenes/poiHost.js; bible/06-Systems/POI-Editor-Arc.md) - every POI the approver let into
   // the world (poi/poiFeed.js: the account service's open feed, asked each minute, kept for a start without the network)
   // stood on its pixel while the streamer holds it built: on the drawn ground, its colliders riding the pixel's floating
@@ -28165,7 +28168,7 @@ export async function bootWorld(canvas, renderer, params, status) { handHeroGend
     if ((tabId === 'trade' || tabId === 'lfg') && !chatLog.tab(tabId)?.room) return why(optWhy(tabId) ?? optWaitText(tabId));   // CHAT-TRADE: not joined, an older relay, or the channel not open yet
     // EMOTE1: an action only down a session whose relay carries one - an older one would say the words bare
     const s = tabId === 'local' ? online : tabId === 'party' || tabId === 'guild' ? socialLink() : chatLinks.get(tabId);
-    if (me && s?.status === 'open' && !s.emoteOk) return why(EMOTE_OLD_RELAY_TEXT);
+    if (me && s?.status === 'open' && !s.emoteOk) return why(EMOTE_OLD_RELAY_TEXT); if (tabId === 'local' && !me) text = chatSaid('local', text);   // DRUNK1: a line said aloud near you slurs with the drink (survival/drunkSpeech.js) - its (( )) aside kept, a gesture never
     if (tabId === 'local') return online?.sendChat(text, { me }) ?? false;
     if (tabId === 'party') {
       if (!social?.party) return why(NO_PARTY_TEXT);
@@ -33381,7 +33384,7 @@ const _pixelOrder = [];   // NEAR-FIRST: the frame's pixel walk, nearest first -
             levitating: player.levitating, swimming: !!player.isPlayerSwimming, motorSwimming: !!player.swimming, pos: player.pos, centreY: player.pos[1] + player.height / 2,
             waterSurfaceY: null, onExteriorWater: _onWater, onExteriorWaterAny: _onWater, onExteriorPath: !!_surf.path, onStaticGeometry: !!_surf.staticGeometry, onFoot: isOnFoot(player.transportMode),
             winter: season === SEASON.Winter, climateIndex: maps.getClimateIndex(_p.x, _p.y), loadInProgress: false, paused: _overlayHeld || _seasonHeld,   // AUDIT-BA F2/F3: the reposition rides rebase(); a held frame is a paused one
-          });
+          }); drunkFeel.frame(dt, { entity: playerEntity, player, paused: _overlayHeld || _seasonHeld });   // DRUNK1: the drink's clock, its ease and its stumble (survival/drunkFeel.js), on the shake's pause
         }
         csaUpdate(dt);   // CSA-D: Come Sail Away's Update and LateUpdate after the motor - the helm's pin and the boat's move carry the body before the eye is taken from it
         // EV1: the interpolated render eye. AUDIT EV F-SIM5: rays and
@@ -34922,7 +34925,7 @@ const _pixelOrder = [];   // NEAR-FIRST: the frame's pixel walk, nearest first -
       livePersonBatches.push(...exteriorFoes.batches(), ...navalCrew.batches());
       if (playerSpawned) _townWatchFrame(foeDt);   // DISC19-F: the town's answer to what the pools just did
       if (playerSpawned) raidingPartiesFrame(gamePaused() ? 0 : foeDt);   // RAID1: the raids' Update - after the pools moved (a death counts on the frame it falls) and the watch answered, its clocks held by a pause (fix 7)
-      markFoeReach([...cityGuards.guards, ...exteriorFoes.foes], { aboard: playerAfloat() && !(walkMode && playerSpawned && player.isPlayerSwimming), seaY: tvSeaY() });   // WATER-FOES: aboard and dry, a foe in the water reaches no one - no enemy nearby (the pools, the watch and the raids done)
+      markFoeReach([...cityGuards.guards, ...exteriorFoes.foes], { aboard: playerAfloat() && !(walkMode && playerSpawned && player.isPlayerSwimming), seaY: tvSeaY() }); if (drunkSignsHost) livePersonBatches.push(...drunkSignsHost.batches());   // WATER-FOES: aboard and dry, a foe in the water reaches no one - no enemy nearby (the pools, the watch and the raids done); DRUNK4: and the signs a very drunk eye sees beside a few doors
     }
     };
     framePools();

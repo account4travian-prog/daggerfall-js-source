@@ -2969,3 +2969,117 @@ street's frame wrote for the ear, DISC9/DISC11 - `weatherSim.js` fallingWeather)
 `env.falling` while the air and the sun keep the sky's word. Fog is not falling and keeps its row. The classic sky's
 level is 1: the mod's row, whole. The record: `01-Overview/bugs/Field-Bugs-2026-10-15f.md`.
 
+
+## DRUNK1 - THE DRINK, FELT AND HEARD (2026-10-17)
+
+Asked for: "Lets add that to the project" - camera sway, blur or double vision, stumbling, slurred speech, NPCs
+reacting - and "The slurred speech and NPCs reactions should just be modified text triggered by the state of
+drunkness." Until now being drunk was the stat swing, the bar's lines ("You are getting drunk..."), the status page's
+line and the amber tankard on the HUD (SURV5); nothing on screen moved. Neither DFU nor the mod has any of this: the
+port's own, built on the counter the tavern already keeps (`entity.survival.drunk`, one off every ten minutes).
+
+**One reading.** `survival/drunkFeel.js` `drunkStateOf` reads the counter against the LIVE endurance in the chip's own
+bands (`status.js` survivalHudChips: past half the endurance Drunk, past the endurance less ten Very drunk), so every
+effect starts with the chip and sobers with it; with the arc Off nothing is felt. The band's share (0 at the Drunk
+line, 1 at the endurance) sets a felt intensity - 0.35 at the line, one at the endurance - that eases at half a unit a
+second, so a drink comes on over two seconds and wears off the same way, and holds under a window (the shake's pause).
+
+**The eye, the feet and the lens** (`drunkFeel`, the game's one, driven by the four hosts beside Better Ambience):
+
+- THE SWAY - a slow roll (3.5 degrees), pitch (1.2) and yaw (1.8) and a few centimetres of eye drift, sums of unrelated
+  sines, folded into the frame's view matrix AFTER Better Ambience's shake: `world/viewFold.js` foldAfterShake (the shake's own fold moved there, a leaf, so the HUD never imports the mod), a fold
+  the one view-space call every host already makes runs after the shake whether the mod is on or off (FIELD-GUN6's
+  reasoning - one fold, not a fifth seam in four hosts, whose view lines the suite pins by source). The look, the aim
+  and the motor are untouched: the picture sways, the player does not turn.
+- THE STUMBLE - walking on the ground, now and then a lurch to one side: the motor's own blow push (`motor.js`
+  blowPush, TELL6e - stopped by a wall, never over an edge), 1.5 to 3.5 m/s across the walk, at a Poisson rate of up
+  to 0.3 a second and never two inside 1.5 s, with a roll kick on the view. Never standing still, in the air, the
+  saddle, the water, on a wall or under a knockdown.
+- THE LENS - a warm vignette that breathes at the screen's edge, painted by `hud.js` drawHud (the one host-agnostic
+  call, beside the blood on the lens) and alpha 0.45 at full. A HUD quad, not a post pass: blur and double vision would
+  need the frame as a texture, and the HUD draws over every host's world without one.
+
+The Climates & Calories row carries a part for all three - **Drunken sway** (`survivalDrunkFeel`, on by default, each
+player's own online, as the temperature plate is) - for a player the motion bothers. Switching it off leaves the words.
+
+**The words** (`survival/drunkSpeech.js`), text only, each line said as the drink stands WHEN it is said:
+
+- SLURRED SPEECH - what the player says: the talk window's player-says line (the question and the Work page's) and a
+  line said on the Local chat tab, the in-character one (`net/chat.js` CHAT_TABS) - slurred where world.js's chatSend
+  hands a Local line to the session, so a plain line, an /rp line and a /l line all pass, a gesture never. An s turns sh (always at the
+  endurance), a long word drags its last vowel, past the Drunk line an -ing loses its g, and a *hic* falls between words
+  (one a line Drunk, two Very drunk). Never inside the (( )) aside, never a word carrying markup (a macro's %, a link, a
+  mention), never on World, Region, Trade, LFG, Party or Guild - the player at the keyboard, not the character at the
+  bar - and never a slur that would run past the wire's line (`wire.js` CHAT_MAX), so the drink never costs the end of
+  what was typed.
+- NPC REACTIONS - what the NPC says back: a line after the greeting by band ("Had a few, have we?", "Sober up before
+  you talk to me."), and before an answer a word now and then (a quarter of the time Drunk, half Very drunk). The
+  answer itself is never changed: a quest's directions stay readable however drunk the asker.
+
+The door is `talkDoor.js` createTalkWindow, the one door under every conversation: `drunkTalk` hands NativeTalkWindow
+the greeting and a hooks object whose question and answer hooks say the drink, every other hook read through to the
+session's own object (its getters live, its own `this`), so both faces - classic and enhanced - show it.
+
+Pinned in `test/systems/survival/drunk1_feel.test.js` and `drunk1_speech.test.js`, the bands against the chip itself and
+the state off a real tavern pour, the talk lines through the real door; each law there was mutated by hand and failed
+its pin.
+
+## DRUNK2-DRUNK4 - THE GOGGLES, THE LOST CONTROL, THE LOST JUDGEMENT (2026-10-17)
+
+Asked for, after DRUNK1's screenshots: "I want more of a beer goggle effect at higher levels, along with less control
+over your character. Also an impairment to the characters judgement. For example, seeing a dragonling as a bat, or an
+elite zombie as a rat. Perhaps seeing the tavern sign appear outside random buildings to give the impression your
+character can't discern reality anymore." Everything below reads the same drink (DRUNK1's bands and felt intensity) and
+is the local player's own picture and hands: nothing is sent, nothing is saved, no other player sees it.
+
+**DRUNK2 - THE BEER GOGGLES** (`render/drunkGoggles.js`, drawn from `drunkFeel.js` drawLens before the vignette). A post
+pass over the resolved frame at the HUD's first draw - the world, the weapon and the blood soft, doubled to one side
+(the gap breathing), waved, warmed and glowing in its highlights; the HUD painted after it stays sharp. Its strength is
+`gogglesAt`: nothing at the Drunk line, one at the endurance - the effect belongs to the higher levels.
+
+**DRUNK2 - LESS CONTROL** (`drunkFeel.js`, `player/lookFilter.js`). Past the Drunk line, by the same goggles share:
+- THE LAGGY LOOK - a floor under DFU's own mouse-look smoothing (lookFilter.js setLookSmoothingFloor, the pitch floor's
+  provider shape): 0.55 just past the line to 0.88 at the endurance, under SMOOTHING_MAX, so the view swims after the
+  hand and always arrives. With the floor at 0 the look is byte for byte the setting's.
+- THE WEAVING WALK - walking on the ground, the body leans side to side (WEAVE: up to 1.1 m/s across the walk, a lap
+  in about four seconds) through the motor's blow push, set each frame; never in the half-gap after a stumble, whose
+  lurch it would overwrite. The motor keeps ONE push, so a blow's knockback must not be leaned away (AUDIT DRUNK2, Sol's
+  review): the feel remembers the speed it last set (decayed as the motor decays it) and, while the motor's push
+  (`motor.js` pushSpeed) runs faster than that, neither weaves nor stumbles - the knockback plays out whole and the lean
+  comes back after it. A knockback slower than the lean itself (under about 1.1 m/s) is not told apart.
+- THE BINGE IS THE FEEL'S (AUDIT DRUNK2): a band change is noticed by drunkFeel's own frame, under a window too
+  (`onDrunkBand`), not by whatever happens to be drawn - so a player who sobers up indoors and drinks again starts a new
+  binge of visions and phantom taverns, which subscribe to it.
+- THE STUMBLES WORSEN - twice as often at the top (0.6 a second) and 1.5 m/s harder.
+The part (**Drunken sway**) turns these off with the sway, the stumble and the lens.
+
+**DRUNK3 - FOES SEEN AS SOMETHING ELSE** (`survival/drunkVisions.js`). Very drunk, a foe may be DRAWN as another
+creature: the dragonlings as a giant bat and the zombie as a rat (the request's own pairs; an elite zombie keeps its
+1.25 scale and is a big rat), any other creature as a rat, a giant bat or an imp - never its own kind, never a person.
+The chance is 0.4 + 0.4 x the share, decided once a foe a binge (a hash of its id, else a kept roll) and rerolled once
+the player has dropped below Very drunk. Only the picture changes: the foe keeps its type, stats, AI, sounds, collision
+and its own animation clock (MobileUnit's frames trigger its blows - they are never touched); the draw takes the
+illusion's archive and texture (loaded through the host's getTexture; the real foe until it has), keeps the record (0
+if the illusion has none) and clamps the frame to the illusion's own count, at the illusion's size. One seam a pool:
+`exteriorFoes.js` batches() (the streaming world, the location bench and every interior) and `dungeonContext.js`
+drawFoes(). A foe with a Morrowind body loses it while seen otherwise (`creatureBodies.js` creatureLook answers none
+for a live, marked foe) so the illusion's sprite shows, and takes it back after. A walker seen as a bat stands on the
+ground and a flyer seen as a rat hovers: part of the joke.
+
+**DRUNK4 - TAVERNS THAT ARE NOT THERE** (`survival/drunkSigns.js`, `scenes/drunkSignsHost.js`). Very drunk, one to
+three buildings of the town the player stands in (1 + round(2 x share)) - shops, guild halls, temples, libraries, the
+bank and houses, never a real tavern - read as taverns: the door's plaque says a tavern's name (generateBuildingName's
+tavern names, seeded off the building's own name seed) in place of its own, through worldModes' exteriorHoverName,
+after its door cache, nothing written and nothing discovered; and on the streaming world a hanging sign - the HUD's
+tankard on a board, made in code - hangs 2.8 m up beside the door (hallBannerAnchors, the guild banners' anchors), a
+camera-facing billboard (no wall-aligned quad path exists; the standoff keeps it off the wall). The pick is seeded per
+town and binge, only grows within a binge, and every phantom and its batch goes when the player sobers below Very
+drunk, the pixel is rebuilt or the game loads. Entering the door goes where it always went.
+
+Four hosts: the goggles, the look and the walk ride drunkFeel (the HUD's draw, the look filter, the four hosts' frame);
+the visions ride the two foe pools every host draws through; the plaque rides exteriorHoverName (world.js and the
+exterior bench), the sign the streaming world alone (the bench measures no door frames; interiors and dungeons stand
+no street).
+
+Pinned in `test/systems/survival/drunk2_control.test.js`, `drunk3_visions.test.js` and `drunk4_signs.test.js`; the
+laws were mutated by hand and each mutant failed its pin.
